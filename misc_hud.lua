@@ -12,11 +12,173 @@ local get_prop = entity.get_prop
 local get_ui = ui.get
 local set_prop = entity.set_prop
 local getclass = entity.get_classname
+local table_insert = table.insert
 
 local draw_rectangle = client.draw_rectangle
 
+local dragging = (function() local a={}local b,c,d,e,f,g,h,i,j,k,l,m,n,o;local p={__index={drag=function(self,...)local q,r=self:get()local s,t=a.drag(q,r,...)if q~=s or r~=t then self:set(s,t)end;return s,t end,set=function(self,q,r)local j,k=client.screen_size()ui.set(self.x_reference,q/j*self.res)ui.set(self.y_reference,r/k*self.res)end,get=function(self)local j,k=client.screen_size()return ui.get(self.x_reference)/self.res*j,ui.get(self.y_reference)/self.res*k end}}function a.new(u,v,w,x)x=x or 10000;local j,k=client.screen_size()local y=ui.new_slider("LUA","A",u.." window position",0,x,v/j*x)local z=ui.new_slider("LUA","A","\n"..u.." window position y",0,x,w/k*x)ui.set_visible(y,false)ui.set_visible(z,false)return setmetatable({name=u,x_reference=y,y_reference=z,res=x},p)end;function a.drag(q,r,A,B,C,D,E)if globals.framecount()~=b then c=ui.is_menu_open()f,g=d,e;d,e=ui.mouse_position()i=h;h=client.key_state(0x01)==true;m=l;l={}o=n;n=false;j,k=client.screen_size()end;if c and i~=nil then if(not i or o)and h and f>q and g>r and f<q+A and g<r+B then n=true;q,r=q+d-f,r+e-g;if not D then q=math.max(0,math.min(j-A,q))r=math.max(0,math.min(k-B,r))end end end;table.insert(l,{q,r,A,B})return q,r,A,B end;return a end)()
+local dragging_indicators = dragging.new("hindicators", 15, 420)
 local screen = {}
 screen.w, screen.h = client.screen_size()
+
+local frequency = 1
+
+local hudsize = 40
+
+local time = globals.realtime()
+
+local rgbr = math.sin((time / frequency) * 4) * 127 + 128
+local rgbg = math.sin((time / frequency) * 4 + 2) * 127 + 128
+local rgbb = math.sin((time / frequency) * 4 + 4) * 127 + 128
+local rgbr2 = math.sin((time / frequency/1.5) * 4) * 127 + 128
+local rgbg2 = math.sin((time / frequency/1.5) * 4 + 2) * 127 + 128
+local rgbb2 = math.sin((time / frequency/1.5) * 4 + 4) * 127 + 128
+
+local function getlen(text, norm)
+	return renderer.measure_text((norm and "" or "+"), text)
+end
+
+local indvars = {
+	["Fake lag"] = {
+		chokedcommands = 0,
+		chokedcommands_prev = 0,
+		chokedcommands_prev_cmd = 0,
+		chokedcommands_max = 0,
+		tickcount = 0,
+		tickcount_prev = 0,
+		last_cmd = 0,
+	},
+}
+
+local inds = {}
+
+local indicators = {}
+
+indicators = {
+	["Fake Lag"] = {
+		solution = {ui.reference("AA", "Fake lag", "Enabled")},
+		should = function(self)
+			local s, a = self.solution[1], self.solution[2]
+			return get_ui(s) and get_ui(a)
+		end,
+		width = function(self)
+			return getlen("Fake Lag", true)*3
+		end,
+		draw = function(self, x, y)
+			local limit = get_ui(ui.reference("MISC", "Settings", "sv_maxusrcmdprocessticks")) - 2
+			local tbl = indvars["Fake lag"]
+			tbl.chokedcommands_prev = tbl.chokedcommands
+            tbl.chokedcommands = globals.chokedcommands()
+            if tbl.chokedcommands_max == nil or tbl.chokedcommands > tbl.chokedcommands_max then
+                tbl.chokedcommands_max = tbl.chokedcommands
+            elseif tbl.chokedcommands == 0 and tbl.chokedcommands_prev ~= 0 then
+                tbl.chokedcommands_max = tbl.chokedcommands_prev
+            elseif tbl.chokedcommands == 0 and tbl.chokedcommands_prev_cmd == 0 then
+                tbl.chokedcommands_max = 0
+            end
+
+
+            tbl.tickcount = globals.tickcount()
+            if tbl.tickcount ~= tbl.tickcount_prev then
+                tbl.last_cmd = globals.curtime()
+                tbl.chokedcommands_prev_cmd = tbl.chokedcommands_prev
+                tbl.tickcount_prev = tbl.tickcount
+            end
+
+			local n = "Fake Lag"
+			drawtext(x, y, 255, 255, 255, 255, "", 0, n)
+			local tw, h = getlen(n, true)
+			local interp = (globals.curtime() - tbl.last_cmd) / globals.tickinterval()
+			local bar_len = 60
+			drawrect(x + 5 + tw, y + h/3.1, bar_len, h/2, 20, 20, 20, 220)
+			local w = bar_len
+			local chokedcommands_interpolated = math.min(tbl.chokedcommands_max, tbl.chokedcommands + (interp < 1 and interp or 0))
+			w = math.floor(w*math.max(0, math.min(1, tbl.chokedcommands_max / limit)))
+			drawgradient(x + 5 + tw, y + h/3.1, w, h/2, rgbr, rgbg, rgbb, 255, rgbr2, rgbg2, rgbb2, 255, true)
+			if tbl.chokedcommands_max > 0 then
+				drawtext(x + 125, y, 255, 255, 255, 255, "r", 0, tbl.chokedcommands_max)
+			end
+		end,
+	},
+	["Ping spike"] = { 
+		solution = {ui.reference("MISC", "Miscellaneous", "Ping spike")},
+		should = function(self)
+			local s, a = self.solution[1], self.solution[2]
+			return get_ui(s) and get_ui(a)
+		end,
+	},
+	["FakeDuck"] = { 
+		solution = ui.reference("RAGE", "Other", "Duck peek assist"),
+		should = function(self) 
+			return get_ui(self.solution)
+		end, 
+	},
+	["On shot AA"] = { 
+		solution = ui.reference("AA", "Other", "On shot anti-aim"),
+		should = function(self) 
+			return get_ui(self.solution)
+		end, 
+	},
+	["Double Tap"] = { 
+		solution = {ui.reference("RAGE", "Other", "Double tap")},
+		should = function(self)
+			local s, a = self.solution[1], self.solution[2]
+			return get_ui(s) and get_ui(a)
+		end,
+		width = function(self)
+			return getlen("Double tap [Deffensive]", true) + 10
+		end,
+		draw = function(self, x, y)
+			local lp = entity.get_local_player()
+			local mode = get_ui(ui.reference("RAGE", "Other", "Double tap mode"))
+			drawtext(x, y, 255, 255, 255, 255, "", 0, "Double tap")
+			local modex, modey = getlen("Double tap", true)
+			local weapon = entity.get_player_weapon(lp)
+			local next_attack = math.max(get_prop(weapon, "m_flNextPrimaryAttack") or 0, get_prop(lp, "m_flNextAttack") or 0)
+			local r, g, b, a = unpack(globals.curtime() > next_attack and {126, 195, 12} or {230, 230, 39})
+			drawtext(x + modex, y, r, g, b, 255, "", 0, " [" .. mode .. "]")
+		end,
+	},
+	["Safe point"] = { 
+		solution = ui.reference("RAGE", "Aimbot", "Force safe point"),
+		should = function(self) 
+			return get_ui(self.solution)
+		end, 
+	},
+	["Freestanding"] = { 
+		solution = {ui.reference("AA", "Anti-aimbot angles", "Freestanding")},
+		should = function(self) 
+			local s, a = self.solution[1], self.solution[2]
+			return get_ui(s) and get_ui(a)
+		end, 
+	},
+	["SlowWalk"] = { 
+		solution = {ui.reference("AA", "Other", "Slow motion")},
+		should = function(self) 
+			local s, a = self.solution[1], self.solution[2]
+			return get_ui(s) and get_ui(a)
+	end, 
+	},
+	["Anti-aim correction override"] = { 
+		solution = ui.reference("RAGE", "Other", "Anti-aim correction override"),
+		should = function(self) 
+			return get_ui(self.solution)
+		end,
+	},
+	["Force baim"] = { 
+		solution = ui.reference("RAGE", "Other", "Force body aim"),
+		should = function(self) 
+			return get_ui(self.solution)
+		end,
+	},
+}
+
+local indicatorlist = {}
+
+for name, tbl in pairs(indicators) do
+	table_insert(indicatorlist, name)
+end
+
 
 local killist = {}
 
@@ -27,7 +189,7 @@ local settings =
 {
    enabled = ui.new_checkbox("LUA", "B", "HUD Enabled"),
    menu_color = ui.reference("Misc", "settings", "Menu color"),
-   hud_settings = ui.new_multiselect("LUA", "B", "HUD settings", "Show header", "Rainbow gradient", "Show ammo", "Show armor", "Show buy icon", "Show weapons", "HP Based color", "Kill feed", "Force radar", "Hide hud"),
+   hud_settings = ui.new_multiselect("LUA", "B", "HUD settings", "Show header", "Rainbow gradient", "Show ammo", "Show armor", "Show buy icon", "Show weapons", "HP Based color", "Kill feed", "Force radar", "Hide hud", "Indicators"),
    hud_beatify = ui.new_multiselect("LUA", "B", "HUD Indicators", "Circle outline", "Line", "For ammo"),
    hud_size = ui.new_slider("LUA", "B", "HUD size", 35, 70, 40),
    -- Gradient settings
@@ -50,27 +212,20 @@ local settings =
    killfeed_starty = ui.new_slider("LUA", "B", "Kill feed y margin", 2, 200, 10),
    killfeed_between = ui.new_slider("LUA", "B", "Kill feed margin mult", 1, 10, 1),
 
-   wselector_starty = ui.new_slider("LUA", "B", "Weapon selecor position (y)", 0, screen.h, screen.h/2),
+   killfeed_mkills = ui.new_slider("LUA", "B", "Max kills", 1, 10, 5),
 
-   wselector_height = ui.new_slider("LUA", "B", "Weapon selecor height", 30, 50, 35),
-   wselector_distance = ui.new_slider("LUA", "B", "Weapon selecor distance", 0, 30, 5),
+   wselector_starty = ui.new_slider("LUA", "B", "Weapon selector position (y)", 0, screen.h, screen.h/2),
+
+   wselector_height = ui.new_slider("LUA", "B", "Weapon selector height", 30, 50, 35),
+   wselector_distance = ui.new_slider("LUA", "B", "Weapon selector distance", 0, 30, 5),
+   wselector_cooldown = ui.new_slider("LUA", "B", "Weapon switch cooldown", 2, 100, 20), -- cooldown between q, 1, 2, 3, ...
+
+   indicators = ui.new_multiselect("LUA", "B", "Indicators", indicatorlist),
 }
 
 ---------------------------------------------------
 -----------------HELPER VARS-----------------------
 
-local frequency = 1
-
-local hudsize = 40
-
-local time = globals.realtime()
-
-local rgbr = math.sin((time / frequency) * 4) * 127 + 128
-local rgbg = math.sin((time / frequency) * 4 + 2) * 127 + 128
-local rgbb = math.sin((time / frequency) * 4 + 4) * 127 + 128
-local rgbr2 = math.sin((time / frequency/1.5) * 4) * 127 + 128
-local rgbg2 = math.sin((time / frequency/1.5) * 4 + 2) * 127 + 128
-local rgbb2 = math.sin((time / frequency/1.5) * 4 + 4) * 127 + 128
 
 local mr, mg, mb, ma
 if get_ui(settings.hud_customcolor) then
@@ -166,10 +321,6 @@ local function draw_indicator_circle(ctx, x, y, r, g, b, a, percentage, outline)
 end
 
 
-local function getlen(text, norm)
-	return renderer.measure_text((norm and "" or "+"), text)
-end
-
 local function clamp(value,min,max)
 	if value < min then
 		return min
@@ -251,31 +402,8 @@ local WeapGroup = {
 	  smokegrenade
 ]]
 
-local function RegroupWeapons(tbl)
-	local back = {}
-	local cur = #tbl
-	if tbl[0] and tbl[0] == "CKnife" then
-		back[#back+1] = tbl[3]
-		tbl[3] = tbl[0]
-		tbl[0] = nil
-	end
-	if tbl[5] == "CC4" then
-		back[#back+1] = "CC4"
-		tbl[5] = nil
-
-	end
-	for k,v in pairs(back) do
-		cur = cur + 1
-		tbl[cur] = v
-		--print(cur, v)
-	end
-	return tbl
-end
-
----------------------------------------------------
-
 local translates = {
-	["CDEagle"] = "Heavy pistol",
+	["CDEagle"] = "Deagle",
 	["CAK47"] = "AK-47",
 	["CKnife"] = "Knife",
 
@@ -286,14 +414,141 @@ local translates = {
 	["CHEGrenade"] = "HE Grenade",
 	["CSmokeGrenade"] = "Smoke",
 
+	["weapon_CItem_Healthshot"] = "Healthshot",
+
 	["CC4"] = "C4"
 }
+
+local toclass = {
+	["Smoke"] = "smokegrenade",
+	["Fire"] = "incgrenade",
+	["HE Grenade"] = "hegrenade",
+	["AK-47"] = "ak47",
+	["Heavy pistol"] = "deagle"
+}
+
+local slots_tbl = {
+	-- primary
+	["weapon_galilar"] = 1,
+	["weapon_famas"] = 1,
+	["weapon_ak47"] = 1,
+	["weapon_m4a1"] = 1,
+	["weapon_m4a1_silencer"] = 1,
+	["weapon_ssg08"] = 1,
+	["weapon_aug"] = 1,
+	["weapon_sg556"] = 1,
+	["weapon_awp"] = 1,
+	["weapon_scar20"] = 1,
+	["weapon_g3sg1"] = 1,
+	["weapon_nova"] = 1,
+	["weapon_sawedoff"] = 1,
+	["weapon_xm1014"] = 1,
+	["weapon_mag7"] = 1,
+	["weapon_m249"] = 1,
+	["weapon_negev"] = 1,
+	["weapon_mac10"] = 1,
+	["weapon_mp9"] = 1,
+	["weapon_mp7"] = 1,
+	["weapon_ump45"] = 1,
+	["weapon_p90"] = 1,
+	["weapon_bizon"] = 1,
+	-- pistols
+	["weapon_glock"] = 2,
+	["weapon_hkp2000"] = 2,
+	["weapon_usp_silencer"] = 2,
+	["weapon_fiveseven"] = 2,
+	["weapon_elite"] = 2,
+	["weapon_p250"] = 2,
+	["weapon_tec9"] = 2,
+	["weapon_deagle"] = 2,
+	-- knives
+	["weapon_knife"] = 3,
+	-- grenades
+	["weapon_flashbang"] = 8,
+	["weapon_smokegrenade"] = 7,
+	["weapon_incgrenade"] = 6,
+	["weapon_hegrenade"] = 4,
+	-- misc
+	["weapon_c4"] = 10,
+	["weapon_healthshot"] = 9,
+}
+
 
 local extend = {
 	["C4"] = true,
 	["Knife"] = false,
 }
 
+local function GetWeaponClass(wep)
+	wep = wep:gsub("CWeapon", ""):gsub("CItem_", "")
+	wep = translates[wep] or wep
+	local name = wep
+	if toclass[wep] then
+		wep = toclass[wep]
+	elseif toclass[string.lower(wep)] then
+		wep = toclass[string.lower(wep)]
+	end
+	wep = "weapon_" .. wep
+	wep = wep:lower()
+	return wep, name -- class, name
+end
+
+
+local function RegroupWeapons(tbl) -- main function to return strings
+	local back = {}
+	for _,wep in pairs(tbl) do
+		local wep, name = GetWeaponClass(wep)
+		if slots_tbl[wep] then
+			back[slots_tbl[wep]] = {class = wep, name = name}
+		end
+	end
+	return back
+end
+
+---------------------------------------------------
+-------------------INDICATORS----------------------
+---------------------------------------------------
+
+local between = 13
+local function DrawIndicators()
+	local h, w = between*1.5, 80
+	local active = {}
+	for name,_ in pairs(inds) do
+		local tbl = indicators[name]
+		if tbl.should(tbl) then
+			table_insert(active, tbl.draw and {s = tbl, f = tbl.draw} or name)
+			if tbl.width then
+				local aw = tbl.width()
+				if aw > w then
+					w = aw
+				end
+			end
+			h = h + between
+		end
+	end
+	if #active == 0 then return end
+
+	local x, y = dragging_indicators:get()
+
+	local width, height = 120, 10
+	dragging_indicators:drag(width, height)
+
+	draw_container(nil, x, y, w, h)
+	x = x + 7
+	y = y + between/2
+	for k, name in pairs(active) do
+		local x, y = x + 2, y + ((k-1) * between)
+		if type(name) == "table" then
+			name.f(name.s, x, y)
+		else
+			drawtext(x, y, 255, 255, 255, 255, "", 0, name)
+		end
+	end
+end
+
+---------------------------------------------------
+------------------------HUD------------------------
+---------------------------------------------------
 
 local function DrawHUD(ctx, e)
 	if not get_ui(settings.enabled) then return end
@@ -475,11 +730,12 @@ local function DrawHUD(ctx, e)
 		local len, bheight, bbeetween = 100, get_ui(settings.wselector_height), get_ui(settings.wselector_distance)
 		local wepx, wepy = screen.w,get_ui(settings.wselector_starty)
 		for k,v in pairs(weptable) do
-			local wep, curwep = (translates[v] or v), (translates[getclass(cwep)] or getclass(cwep))
-			if extend[wep] == true then
+			local curwep, curname = GetWeaponClass(getclass(cwep))
+			local wep, name  = v.class, v.name
+			if extend[name] == true then
 				wepy = wepy + bbeetween*1.5
 			end
-			local class = k .. " - " .. wep:gsub("CWeapon", "") -- thx zack for idea
+			local class = k .. " - " .. name
 			len = getlen(class)+25
 			local got = len
 			draw_container(ctx, wepx-got, wepy, len, bheight)
@@ -489,17 +745,20 @@ local function DrawHUD(ctx, e)
 				drawtext(wepx+(len/2)-got, wepy+(bheight/2), 255, 255, 255, a3, "c+", 0, class)
 			end
 			wepy = wepy + bheight + bbeetween
-			if extend[wep] == false then
+			if extend[name] == false then
 				wepy = wepy + bbeetween*1.5
 			end
 		end
+	end
+	if Contains(things3ref, "Indicators") then
+		DrawIndicators()
 	end
 end
 
 client.set_event_callback("paint", DrawHUD)
 
 local keys = {
-	[0x30] = 0,
+	[0x30] = 10,
 	[0x31] = 1,
 	[0x32] = 2,
 	[0x33] = 3,
@@ -508,32 +767,44 @@ local keys = {
 	[0x36] = 6,
 	[0x37] = 7,
 	[0x38] = 8,
-	[0x30] = 9,
+	[0x39] = 9,
 	
 }
 
-local toclass = {
-	["Smoke"] = "smokegrenade",
-	["Fire"] = "incgrenade",
-	["HE Grenade"] = "hegrenade"
-}
+local cooldown = .1
 
 local nextc = 0
+
+local prev = ""
 
 client.set_event_callback("paint", function() -- bind system
 	if not get_ui(settings.enabled) then return end
 	if nextc > globals.realtime() then return end
+
+	if client.key_state(0x51) then -- q
+		local cwep = get_prop(entity.get_local_player(), "m_hActiveWeapon")
+		local now = GetWeaponClass(getclass(cwep))
+		client.exec("use " .. prev)
+		if prev ~= now then
+			prev = now
+		end
+		nextc = globals.realtime() + cooldown
+	end
+
 	for k,v in pairs(keys) do
 		if client.key_state(k) then
 			local weps = RegroupWeapons(GetWeapons(entity.get_local_player()))
 			if not weps[v] then return end
-			local wep = weps[v]
-			wep = wep:gsub("CWeapon", "")
-			wep = translates[wep] or wep 
-			wep = toclass[wep] or wep
-			client.exec("use weapon_" .. wep)
-			print(wep)
-			nextc = globals.realtime() + .5
+
+			local cwep = get_prop(entity.get_local_player(), "m_hActiveWeapon")
+			local now = GetWeaponClass(getclass(cwep))
+
+			local wep = weps[v].class
+			client.exec("use " .. wep)
+			if wep ~= now then
+				prev = now
+			end
+			nextc = globals.realtime() + cooldown
 		end
 	end
 end)
@@ -552,6 +823,9 @@ local function LogKill(evnt)
 		time = nil
 	end
 	killist[id] = {killer = killer:sub(0,15), victim = victim:sub(0,15), weapon = weapon, hs = hs, wall = wall, col = col, col2 = col2, remove = time, x = 0}
+	if id > get_ui(settings.killfeed_mkills) then
+		removefromtable(1)
+	end
 end
 
 local function ClearList()
@@ -576,6 +850,7 @@ local sets = {
 
    	[settings.hud_accent] = function() return get_ui(settings.hud_customcolor) end,
    	[settings.hud_container_background] = function() return get_ui(settings.hud_container) == "Custom" or get_ui(settings.hud_container) == "Trash" end,
+   	[settings.indicators] = function() return Contains(get_ui(settings.hud_settings), "Indicators") end,
 }
 
 local function MakeMenu(should)
@@ -641,6 +916,17 @@ ui.set_callback(settings.second_color, UpdateColors)
 
 ui.set_callback(settings.hud_size, UpdateColors)
 
+ui.set_callback(settings.wselector_cooldown, function()
+	cooldown = get_ui(settings.wselector_cooldown)/100
+end)
+
+ui.set_callback(settings.indicators, function(a)
+	inds = {}
+	for k,v in pairs(get_ui(a)) do
+		inds[v] = true
+	end
+end)
 
 client.set_event_callback('player_death', LogKill)
 client.set_event_callback('round_start', ClearList)
+
